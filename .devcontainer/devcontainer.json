@@ -1,0 +1,29 @@
+{
+  "name": "Flutter Apps Workspace",
+  "image": "mcr.microsoft.com/devcontainers/base:debian",
+  
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dart-code.dart-code",
+        "dart-code.flutter",
+        "ms-python.python"
+      ],
+      "settings": {
+        "dart.flutterSdkPath": "/usr/local/flutter"
+      }
+    }
+  },
+
+  "postCreateCommand": "bash .devcontainer/setup.sh",
+  
+  "remoteUser": "vscode",
+  "remoteEnv": {
+    "PATH": "${containerEnv:PATH}:/usr/local/flutter/bin"
+  }
+}
