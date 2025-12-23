@@ -1,0 +1,76 @@
+name: Build AAB Files
+
+on:
+  workflow_dispatch:
+    inputs:
+      developer:
+        description: 'Developer account folder (e.g., 01_giggle_game)'
+        required: true
+        type: string
+      app:
+        description: 'App name (e.g., joke_generator)'
+        required: true
+        type: string
+  push:
+    branches: [ main ]
+    paths:
+      - '**/lib/**'
+      - '**/pubspec.yaml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.38.4'
+        channel: 'stable'
+        cache: true
+    
+    - name: Install dependencies
+      run: |
+        flutter doctor -v
+        flutter pub get
+    
+    - name: Build AAB
+      run: |
+        if [ -n "${{ github.event.inputs.developer }}" ] && [ -n "${{ github.event.inputs.app }}" ]; then
+          cd "${{ github.event.inputs.developer }}/${{ github.event.inputs.app }}"
+        else
+          # Build all Giggle Game apps as default
+          cd 01_giggle_game/joke_generator
+        fi
+        
+        flutter clean
+        flutter pub get
+        flutter build appbundle --release
+    
+    - name: Upload AAB artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: app-release-aab
+        path: |
+          **/build/app/outputs/bundle/release/*.aab
+        retention-days: 30
+        if-no-files-found: error
+    
+    - name: Upload to store_assets
+      run: |
+        mkdir -p store_assets
+        find . -name "*.aab" -path "*/build/app/outputs/bundle/release/*" -exec cp {} store_assets/ \;
+    
+    - name: Commit and push AAB files
+      run: |
+        git config user.name "GitHub Actions"
+        git config user.email "actions@github.com"
+        git add store_assets/
+        git commit -m "Build: Add AAB files from GitHub Actions" || exit 0
+        git push || exit 0
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

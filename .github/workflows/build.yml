@@ -1,0 +1,42 @@
+name: Build Flutter Apps
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.38.4'
+        channel: 'stable'
+    
+    - name: Install dependencies
+      run: |
+        flutter pub get
+        flutter doctor
+    
+    - name: Build AAB (Example)
+      run: |
+        cd 01_giggle_game/joke_generator
+        flutter build appbundle --release
+      continue-on-error: true
+    
+    - name: Upload AAB artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: app-release
+        path: |
+          **/build/app/outputs/bundle/release/*.aab
+        retention-days: 7
+      if: always()
+

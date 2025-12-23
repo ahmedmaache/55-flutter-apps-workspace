@@ -1,0 +1,48 @@
+name: Build All Apps
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 2 * * 0'  # Weekly on Sunday at 2 AM
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        developer: [01_giggle_game, 02_playpal_creations, 03_olaf, 04_good_kids, 05_apocalypse_never, 06_atomizer, 07_okkyes, 08_insightful_apps, 09_build_deploy_labs, 10_micho, 11_playtime_programmers]
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.38.4'
+        channel: 'stable'
+        cache: true
+    
+    - name: Build all apps in ${{ matrix.developer }}
+      run: |
+        cd ${{ matrix.developer }}
+        for app_dir in */; do
+          if [ -f "${app_dir}pubspec.yaml" ]; then
+            echo "Building ${app_dir%/}..."
+            cd "${app_dir}"
+            flutter clean
+            flutter pub get
+            flutter build appbundle --release || echo "Build failed for ${app_dir%/}"
+            cd ..
+          fi
+        done
+    
+    - name: Upload AAB artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: aab-files-${{ matrix.developer }}
+        path: |
+          ${{ matrix.developer }}/**/build/app/outputs/bundle/release/*.aab
+        retention-days: 30
+        if-no-files-found: ignore
+

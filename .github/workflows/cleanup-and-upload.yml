@@ -1,0 +1,58 @@
+name: Cleanup and Upload to GitHub Storage
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Run weekly to clean up and organize storage
+    - cron: '0 0 * * 0'
+
+jobs:
+  cleanup-and-organize:
+    name: Cleanup and Organize Storage
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          lfs: true  # Include Git LFS files
+
+      - name: Organize AAB files
+        run: |
+          echo "📦 Organizing AAB files..."
+          
+          # Create organized structure
+          mkdir -p github_storage/aab_files
+          
+          # Find and organize AAB files
+          if [ -d "store_assets" ]; then
+            find store_assets -name "*.aab" -exec cp {} github_storage/aab_files/ \;
+            echo "✅ AAB files organized"
+          else
+            echo "⚠️  No store_assets directory found"
+          fi
+
+      - name: Upload to GitHub Storage (Artifacts)
+        uses: actions/upload-artifact@v4
+        with:
+          name: all-aab-files
+          path: github_storage/aab_files/
+          retention-days: 90  # Extended retention
+          if-no-files-found: warn
+
+      - name: Calculate storage savings
+        run: |
+          echo "### Storage Organization Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -d "github_storage/aab_files" ]; then
+            FILE_COUNT=$(find github_storage/aab_files -name "*.aab" | wc -l)
+            TOTAL_SIZE=$(du -sh github_storage/aab_files | cut -f1)
+            
+            echo "**Files organized:** $FILE_COUNT AAB files" >> $GITHUB_STEP_SUMMARY
+            echo "**Total size:** $TOTAL_SIZE" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "✅ All AAB files are now stored in GitHub Actions artifacts" >> $GITHUB_STEP_SUMMARY
+            echo "📦 Download from: Actions → Artifacts → all-aab-files" >> $GITHUB_STEP_SUMMARY
+          fi
+

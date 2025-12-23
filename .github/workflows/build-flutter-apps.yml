@@ -1,0 +1,231 @@
+name: 🚀 Build Flutter Apps
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - '**.dart'
+      - '**/pubspec.yaml'
+      - '.github/workflows/build-flutter-apps.yml'
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+    inputs:
+      developer:
+        description: 'Developer account folder (e.g., 01_giggle_game) or "all"'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - '01_giggle_game'
+          - '02_playpal_creations'
+          - '03_olaf'
+          - '04_good_kids'
+          - '05_apocalypse_never'
+          - '06_atomizer'
+          - '07_okkyes'
+          - '08_insightful_apps'
+          - '09_build_deploy_labs'
+          - '10_micho'
+          - '11_playtime_programmers'
+      app_name:
+        description: 'Specific app name (leave empty for all apps)'
+        required: false
+        type: string
+      build_type:
+        description: 'Build type'
+        required: true
+        default: 'release'
+        type: choice
+        options:
+          - release
+          - debug
+
+env:
+  FLUTTER_VERSION: '3.24.0'
+  JAVA_VERSION: '17'
+
+jobs:
+  detect-apps:
+    name: 🔍 Detect Apps to Build
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🔍 Detect apps
+        id: set-matrix
+        run: |
+          DEVELOPER="${{ github.event.inputs.developer || 'all' }}"
+          APP_NAME="${{ github.event.inputs.app_name || '' }}"
+          
+          if [ "$DEVELOPER" = "all" ]; then
+            # Find all apps
+            APPS=$(find . -name "pubspec.yaml" -path "*/[0-9]*_*/*" | sed 's|^\./||' | sed 's|/pubspec.yaml||' | jq -R -s -c 'split("\n")[:-1] | map({developer: (. | split("/")[0]), app: (. | split("/")[1])})')
+          else
+            if [ -z "$APP_NAME" ]; then
+              # All apps for developer
+              APPS=$(find "./$DEVELOPER" -name "pubspec.yaml" -type f | sed 's|^\./||' | sed 's|/pubspec.yaml||' | jq -R -s -c "split(\"\\n\")[:-1] | map({developer: \"$DEVELOPER\", app: (. | split(\"/\")[1])})")
+            else
+              # Specific app
+              APPS=$(echo "[{\"developer\":\"$DEVELOPER\",\"app\":\"$APP_NAME\"}]" | jq -c .)
+            fi
+          fi
+          
+          echo "matrix=$APPS" >> $GITHUB_OUTPUT
+          echo "📦 Apps to build:"
+          echo "$APPS" | jq -r '.[] | "  - \(.developer)/\(.app)"'
+
+  build:
+    name: 🏗️ Build ${{ matrix.developer }}/${{ matrix.app }}
+    needs: detect-apps
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.detect-apps.outputs.matrix) }}
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: ☕ Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'microsoft'
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: 'gradle'
+
+      - name: 🎯 Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+
+      - name: 📋 Flutter Doctor
+        run: flutter doctor -v
+
+      - name: 📦 Get Dependencies
+        working-directory: ${{ matrix.developer }}/${{ matrix.app }}
+        run: |
+          flutter pub get
+          flutter pub upgrade
+
+      - name: 🧹 Clean Build
+        working-directory: ${{ matrix.developer }}/${{ matrix.app }}
+        run: flutter clean
+
+      - name: 🏗️ Build AAB
+        working-directory: ${{ matrix.developer }}/${{ matrix.app }}
+        run: |
+          BUILD_TYPE="${{ github.event.inputs.build_type || 'release' }}"
+          if [ "$BUILD_TYPE" = "release" ]; then
+            flutter build appbundle --release
+          else
+            flutter build appbundle --debug
+          fi
+
+      - name: 📊 Build Info
+        working-directory: ${{ matrix.developer }}/${{ matrix.app }}
+        run: |
+          AAB_FILE="build/app/outputs/bundle/release/app-release.aab"
+          if [ -f "$AAB_FILE" ]; then
+            SIZE=$(du -h "$AAB_FILE" | cut -f1)
+            echo "✅ AAB built successfully: $SIZE"
+            echo "📦 File: $AAB_FILE"
+          else
+            echo "❌ AAB file not found"
+            exit 1
+          fi
+
+      - name: 📤 Upload AAB Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aab-${{ matrix.developer }}-${{ matrix.app }}
+          path: ${{ matrix.developer }}/${{ matrix.app }}/build/app/outputs/bundle/release/app-release.aab
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: 📤 Upload to Store Assets
+        if: success()
+        run: |
+          DEVELOPER_NAME=$(echo "${{ matrix.developer }}" | sed 's/[0-9]*_//')
+          mkdir -p "store_assets/$DEVELOPER_NAME/${{ matrix.app }}"
+          cp "${{ matrix.developer }}/${{ matrix.app }}/build/app/outputs/bundle/release/app-release.aab" \
+             "store_assets/$DEVELOPER_NAME/${{ matrix.app }}/${{ matrix.app }}-release.aab"
+          echo "✅ AAB copied to store_assets"
+
+      - name: 📤 Commit Store Assets
+        if: success() && github.ref == 'refs/heads/main'
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add store_assets/
+          git commit -m "🤖 Auto-build: ${{ matrix.developer }}/${{ matrix.app }}" || exit 0
+          git push || echo "No changes to commit"
+
+  create-release:
+    name: 📦 Create Release with AABs
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📥 Download All Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: 📦 Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Build #${{ github.run_number }} - ${{ github.sha }}
+          body: |
+            ## 🚀 Automated Build Release
+            
+            **Build Number:** #${{ github.run_number }}  
+            **Commit:** ${{ github.sha }}  
+            **Date:** ${{ github.event.head_commit.timestamp }}
+            
+            ### 📦 Built Apps
+            This release contains AAB files for all successfully built apps.
+            
+            ### 📥 Download
+            Download individual AAB files from the Artifacts section or from this release.
+            
+            ### 🔄 Next Steps
+            1. Review AAB files
+            2. Upload to Google Play Console
+            3. Submit for review
+          files: artifacts/**/*.aab
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  summary:
+    name: 📊 Build Summary
+    needs: [detect-apps, build]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: 📊 Summary
+        run: |
+          echo "## 🏗️ Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Workflow:** ${{ github.workflow }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Run:** #${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Apps Built" >> $GITHUB_STEP_SUMMARY
+          echo "Check individual jobs for build status." >> $GITHUB_STEP_SUMMARY

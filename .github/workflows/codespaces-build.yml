@@ -1,0 +1,82 @@
+name: Build in Codespaces
+
+on:
+  workflow_dispatch:
+    inputs:
+      developer:
+        description: 'Developer account folder'
+        required: true
+        type: string
+      app_name:
+        description: 'App name to build'
+        required: true
+        type: string
+
+jobs:
+  build:
+    name: Build in Codespaces
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'microsoft'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.0'
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            curl \
+            wget \
+            unzip \
+            xz-utils \
+            zip \
+            libglu1-mesa \
+            build-essential
+
+      - name: Accept Android licenses
+        run: yes | flutter doctor --android-licenses || true
+
+      - name: Build Flutter app
+        run: |
+          APP_DIR="${{ github.workspace }}/${{ github.event.inputs.developer }}/${{ github.event.inputs.app_name }}"
+          
+          if [ ! -d "$APP_DIR" ]; then
+            echo "❌ App directory not found: $APP_DIR"
+            exit 1
+          fi
+          
+          cd "$APP_DIR"
+          
+          echo "🔨 Building ${{ github.event.inputs.app_name }}..."
+          flutter clean
+          flutter pub get
+          flutter build appbundle --release
+          
+          if [ -f "build/app/outputs/bundle/release/app-release.aab" ]; then
+            echo "✅ Build successful!"
+            ls -lh build/app/outputs/bundle/release/app-release.aab
+          else
+            echo "❌ Build failed - AAB file not found"
+            exit 1
+          fi
+
+      - name: Upload AAB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ github.event.inputs.app_name }}-aab
+          path: ${{ github.event.inputs.developer }}/${{ github.event.inputs.app_name }}/build/app/outputs/bundle/release/app-release.aab
+          retention-days: 30
+

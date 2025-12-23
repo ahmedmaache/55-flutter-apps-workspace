@@ -1,0 +1,148 @@
+name: Create Flutter Apps
+
+on:
+  workflow_dispatch:
+    inputs:
+      developer:
+        description: 'Developer account (e.g., 01_giggle_game)'
+        required: true
+        type: choice
+        options:
+          - 01_giggle_game
+          - 02_playpal_creations
+          - 03_olaf
+          - 04_good_kids
+          - 05_apocalypse_never
+          - 06_atomizer
+          - 07_okkyes
+          - 08_insightful_apps
+          - 09_build_deploy_labs
+          - 10_micho
+          - 11_playtime_programmers
+      app_name:
+        description: 'App name (e.g., joke_generator)'
+        required: true
+        type: string
+      package_org:
+        description: 'Package organization (e.g., org.gloven.giggle)'
+        required: true
+        type: string
+      create_all:
+        description: 'Create all pending apps for developer?'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  create-app:
+    name: Create Flutter App
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v4
+        with:
+          flutter-version: '3.24.0'
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            curl \
+            wget \
+            unzip \
+            xz-utils \
+            zip
+
+      - name: Flutter doctor
+        run: flutter doctor -v
+
+      - name: Create Flutter app
+        id: create
+        env:
+          DEVELOPER_DIR: ${{ github.event.inputs.developer }}
+          APP_NAME: ${{ github.event.inputs.app_name }}
+          PACKAGE_ORG: ${{ github.event.inputs.package_org }}
+          CREATE_ALL: ${{ github.event.inputs.create_all }}
+        run: |
+          echo "🚀 Creating Flutter app..."
+          echo "Developer: $DEVELOPER_DIR"
+          echo "App Name: $APP_NAME"
+          echo "Package: $PACKAGE_ORG"
+          echo ""
+          
+          # Create developer directory if it doesn't exist
+          mkdir -p "$DEVELOPER_DIR"
+          cd "$DEVELOPER_DIR"
+          
+          # Check if app already exists
+          if [ -d "$APP_NAME" ]; then
+            echo "⚠️ App $APP_NAME already exists in $DEVELOPER_DIR"
+            echo "exists=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          # Create Flutter app
+          echo "📦 Creating Flutter app: $APP_NAME"
+          flutter create --org "$PACKAGE_ORG" --project-name "$APP_NAME" "$APP_NAME"
+          
+          if [ -d "$APP_NAME" ]; then
+            echo "✅ App created successfully!"
+            echo "created=true" >> $GITHUB_OUTPUT
+            
+            # Add common dependencies
+            cd "$APP_NAME"
+            echo "📚 Adding common dependencies..."
+            flutter pub add shared_preferences provider
+            
+            # Update build.gradle.kts for signing (if needed)
+            if [ -f "android/app/build.gradle.kts" ]; then
+              echo "🔧 Configuring Android build..."
+              # The signing config will be added by update_gradle_signing.sh if needed
+            fi
+            
+            echo "✅ App setup complete!"
+          else
+            echo "❌ Failed to create app"
+            echo "created=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: Commit and push changes
+        if: steps.create.outputs.created == 'true'
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          
+          git add "${{ github.event.inputs.developer }}/${{ github.event.inputs.app_name }}"
+          git commit -m "Create Flutter app: ${{ github.event.inputs.app_name }} for ${{ github.event.inputs.developer }}" || echo "No changes to commit"
+          
+          git push origin HEAD:${{ github.ref }} || echo "Push failed or no changes"
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### Flutter App Creation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Developer:** ${{ github.event.inputs.developer }}" >> $GITHUB_STEP_SUMMARY
+          echo "**App Name:** ${{ github.event.inputs.app_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Package:** ${{ github.event.inputs.package_org }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.create.outputs.created }}" == "true" ]; then
+            echo "✅ **Status:** App created successfully!" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Next steps:**" >> $GITHUB_STEP_SUMMARY
+            echo "1. Review the created app structure" >> $GITHUB_STEP_SUMMARY
+            echo "2. Add app-specific code and features" >> $GITHUB_STEP_SUMMARY
+            echo "3. Build and test the app" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ steps.create.outputs.exists }}" == "true" ]; then
+            echo "⚠️ **Status:** App already exists" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Status:** App creation failed" >> $GITHUB_STEP_SUMMARY
+          fi
+

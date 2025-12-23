@@ -1,0 +1,186 @@
+name: Generate Store Assets
+
+on:
+  workflow_dispatch:
+    inputs:
+      developer:
+        description: 'Developer account'
+        required: true
+        type: choice
+        options:
+          - 01_giggle_game
+          - 02_playpal_creations
+          - 03_olaf
+          - 04_good_kids
+          - 05_apocalypse_never
+          - 06_atomizer
+          - 07_okkyes
+          - 08_insightful_apps
+          - 09_build_deploy_labs
+          - 10_micho
+          - 11_playtime_programmers
+      app_name:
+        description: 'App name'
+        required: true
+        type: string
+
+jobs:
+  generate-assets:
+    name: Generate Store Assets
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install image generation dependencies
+        run: |
+          pip install Pillow qrcode[pil] requests
+
+      - name: Generate Store Assets
+        env:
+          DEVELOPER: ${{ github.event.inputs.developer }}
+          APP_NAME: ${{ github.event.inputs.app_name }}
+        run: |
+          echo "🎨 Generating store assets for $APP_NAME..."
+          
+          # Create directories
+          mkdir -p "store_assets/$DEVELOPER/$APP_NAME/icons"
+          mkdir -p "store_assets/$DEVELOPER/$APP_NAME/graphics"
+          mkdir -p "store_assets/$DEVELOPER/$APP_NAME/screenshots"
+          mkdir -p "store_assets/$DEVELOPER/$APP_NAME/descriptions"
+          
+          # Generate icon (512x512px)
+          python3 << 'EOF'
+          from PIL import Image, ImageDraw, ImageFont
+          import os
+          
+          developer = os.environ['DEVELOPER']
+          app_name = os.environ['APP_NAME']
+          
+          # Create icon
+          icon = Image.new('RGB', (512, 512), color='#2196F3')
+          draw = ImageDraw.Draw(icon)
+          
+          # Add app name (centered)
+          try:
+              font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 60)
+          except:
+              font = ImageFont.load_default()
+          
+          text = app_name.replace('_', ' ').title()
+          bbox = draw.textbbox((0, 0), text, font=font)
+          text_width = bbox[2] - bbox[0]
+          text_height = bbox[3] - bbox[1]
+          position = ((512 - text_width) // 2, (512 - text_height) // 2)
+          draw.text(position, text, fill='white', font=font)
+          
+          icon.save(f"store_assets/{developer}/{app_name}/icons/icon-512.png")
+          print(f"✅ Icon generated: icon-512.png")
+          EOF
+          
+          # Generate feature graphic (1200x500px)
+          python3 << 'EOF'
+          from PIL import Image, ImageDraw, ImageFont
+          import os
+          
+          developer = os.environ['DEVELOPER']
+          app_name = os.environ['APP_NAME']
+          
+          # Create feature graphic
+          graphic = Image.new('RGB', (1200, 500), color='#4CAF50')
+          draw = ImageDraw.Draw(graphic)
+          
+          try:
+              font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 80)
+          except:
+              font = ImageFont.load_default()
+          
+          text = app_name.replace('_', ' ').title()
+          bbox = draw.textbbox((0, 0), text, font=font)
+          text_width = bbox[2] - bbox[0]
+          position = ((1200 - text_width) // 2, 200)
+          draw.text(position, text, fill='white', font=font)
+          
+          graphic.save(f"store_assets/{developer}/{app_name}/graphics/feature-graphic.png")
+          print(f"✅ Feature graphic generated: feature-graphic.png")
+          EOF
+          
+          # Generate screenshots (1080x1920px)
+          python3 << 'EOF'
+          from PIL import Image, ImageDraw, ImageFont
+          import os
+          
+          developer = os.environ['DEVELOPER']
+          app_name = os.environ['APP_NAME']
+          
+          for i in range(1, 4):  # Generate 3 screenshots
+              screenshot = Image.new('RGB', (1080, 1920), color='#FF9800')
+              draw = ImageDraw.Draw(screenshot)
+              
+              try:
+                  font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 100)
+              except:
+                  font = ImageFont.load_default()
+              
+              text = f"{app_name.replace('_', ' ').title()}\nScreenshot {i}"
+              draw.text((100, 800), text, fill='white', font=font)
+              
+              screenshot.save(f"store_assets/{developer}/{app_name}/screenshots/phone-portrait-{i}.png")
+              print(f"✅ Screenshot {i} generated: phone-portrait-{i}.png")
+          EOF
+          
+          # Generate descriptions
+          cat > "store_assets/$DEVELOPER/$APP_NAME/descriptions/short.txt" << DESC
+          $(echo "$APP_NAME" | sed 's/_/ /g' | awk '{for(i=1;i<=NF;i++)$i=toupper(substr($i,1,1)) substr($i,2)}1') - Your daily companion
+          DESC
+          
+          cat > "store_assets/$DEVELOPER/$APP_NAME/descriptions/full.txt" << DESC
+          # $(echo "$APP_NAME" | sed 's/_/ /g' | awk '{for(i=1;i<=NF;i++)$i=toupper(substr($i,1,1)) substr($i,2)}1')
+          
+          ## About
+          $(echo "$APP_NAME" | sed 's/_/ /g' | awk '{for(i=1;i<=NF;i++)$i=toupper(substr($i,1,1)) substr($i,2)}1') is a powerful and intuitive app designed to enhance your daily experience.
+          
+          ## Features
+          - Clean and modern interface
+          - Fast and responsive
+          - Offline functionality
+          - Regular updates
+          
+          ## Why Choose Us?
+          - User-friendly design
+          - Reliable performance
+          - Continuous improvements
+          
+          Download now and experience the difference!
+          DESC
+          
+          echo "✅ Store assets generated successfully!"
+
+      - name: Upload Store Assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: store-assets-${{ github.event.inputs.developer }}-${{ github.event.inputs.app_name }}
+          path: store_assets/${{ github.event.inputs.developer }}/${{ github.event.inputs.app_name }}/
+          retention-days: 90
+
+      - name: Summary
+        run: |
+          echo "### Store Assets Generated" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Developer:** ${{ github.event.inputs.developer }}" >> $GITHUB_STEP_SUMMARY
+          echo "**App:** ${{ github.event.inputs.app_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Generated Assets:**" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Icon (512x512px)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Feature Graphic (1200x500px)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Screenshots (1080x1920px)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Descriptions (short + full)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📦 Download from: Actions → Artifacts" >> $GITHUB_STEP_SUMMARY
+
