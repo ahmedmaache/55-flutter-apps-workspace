@@ -91,7 +91,7 @@ ICON_SIZES = {
 def create_icon(size, emoji, color):
     """Create an app icon with emoji and background color"""
     # Create image with rounded corners
-    img = Image.new('RGB', (size, size), color)
+    img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     
     # Draw rounded rectangle background
@@ -102,29 +102,68 @@ def create_icon(size, emoji, color):
         fill=color
     )
     
-    # Try to use a font that supports emojis
-    try:
-        # Try to use system font that supports emojis
-        font_size = int(size * 0.6)
+    # For emoji rendering, we'll use a text-based approach
+    # Since emoji fonts may not be available, we'll create a simple colored circle with text
+    # Try to use Noto Color Emoji font (common on Linux)
+    font_size = int(size * 0.5)
+    font = None
+    
+    # Try different emoji font paths
+    emoji_font_paths = [
+        "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
+        "/usr/share/fonts/truetype/noto/NotoEmoji-Regular.ttf",
+        "/System/Library/Fonts/Apple Color Emoji.ttc",
+        "/Library/Fonts/Apple Color Emoji.ttc",
+    ]
+    
+    for font_path in emoji_font_paths:
         try:
-            font = ImageFont.truetype("/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf", font_size)
+            if os.path.exists(font_path):
+                font = ImageFont.truetype(font_path, font_size)
+                break
         except:
-            try:
-                font = ImageFont.truetype("/System/Library/Fonts/Apple Color Emoji.ttc", font_size)
-            except:
-                font = ImageFont.load_default()
-    except:
-        font = ImageFont.load_default()
+            continue
+    
+    # If no emoji font found, use default and draw emoji as text
+    if font is None:
+        try:
+            # Try DejaVu Sans which has better Unicode support
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size)
+        except:
+            font = ImageFont.load_default()
     
     # Calculate text position (center)
-    bbox = draw.textbbox((0, 0), emoji, font=font)
-    text_width = bbox[2] - bbox[0]
-    text_height = bbox[3] - bbox[1]
-    x = (size - text_width) // 2
-    y = (size - text_height) // 2
+    try:
+        bbox = draw.textbbox((0, 0), emoji, font=font)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
+        x = (size - text_width) // 2 - bbox[0]
+        y = (size - text_height) // 2 - bbox[1]
+    except:
+        # Fallback positioning
+        x = size // 4
+        y = size // 4
     
-    # Draw emoji
-    draw.text((x, y), emoji, font=font, embedded_color=True)
+    # Draw emoji/text
+    try:
+        draw.text((x, y), emoji, font=font, fill=(255, 255, 255, 255), embedded_color=True)
+    except:
+        # If emoji rendering fails, draw a simple circle with first letter
+        circle_size = int(size * 0.6)
+        circle_x = (size - circle_size) // 2
+        circle_y = (size - circle_size) // 2
+        draw.ellipse(
+            [circle_x, circle_y, circle_x + circle_size, circle_y + circle_size],
+            fill=(255, 255, 255, 200)
+        )
+        # Draw first character of emoji or app name
+        text = emoji[0] if len(emoji) > 0 else "A"
+        bbox = draw.textbbox((0, 0), text, font=font)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
+        text_x = (size - text_width) // 2 - bbox[0]
+        text_y = (size - text_height) // 2 - bbox[1]
+        draw.text((text_x, text_y), text, font=font, fill=color)
     
     return img
 
@@ -158,15 +197,67 @@ def generate_icons_for_app(developer, app_name, config):
     with open(os.path.join(adaptive_path, "ic_launcher.xml"), "w") as f:
         f.write(xml_content)
     
-    # Create foreground icon
+    # Create foreground icon (transparent background with emoji)
     foreground_size = 108  # Standard foreground size
-    foreground = create_icon(foreground_size, emoji, (255, 255, 255))  # White background for foreground
+    foreground_img = Image.new('RGBA', (foreground_size, foreground_size), (0, 0, 0, 0))
+    foreground_draw = ImageDraw.Draw(foreground_img)
+    
+    # Try to draw emoji on transparent background
+    font_size = int(foreground_size * 0.6)
+    font = None
+    emoji_font_paths = [
+        "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
+        "/usr/share/fonts/truetype/noto/NotoEmoji-Regular.ttf",
+    ]
+    for font_path in emoji_font_paths:
+        try:
+            if os.path.exists(font_path):
+                font = ImageFont.truetype(font_path, font_size)
+                break
+        except:
+            continue
+    
+    if font is None:
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size)
+        except:
+            font = ImageFont.load_default()
+    
+    try:
+        bbox = foreground_draw.textbbox((0, 0), emoji, font=font)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
+        x = (foreground_size - text_width) // 2 - bbox[0]
+        y = (foreground_size - text_height) // 2 - bbox[1]
+        foreground_draw.text((x, y), emoji, font=font, embedded_color=True)
+    except:
+        # Fallback: draw circle
+        circle_size = int(foreground_size * 0.7)
+        circle_x = (foreground_size - circle_size) // 2
+        circle_y = (foreground_size - circle_size) // 2
+        foreground_draw.ellipse(
+            [circle_x, circle_y, circle_x + circle_size, circle_y + circle_size],
+            fill=(255, 255, 255, 200)
+        )
+    
+    # Save foreground icons in all sizes
     for mipmap_name, size in ICON_SIZES.items():
         mipmap_path = os.path.join(app_path, mipmap_name)
-        foreground_resized = foreground.resize((size, size), Image.Resampling.LANCZOS)
+        foreground_resized = foreground_img.resize((size, size), Image.Resampling.LANCZOS)
         foreground_path = os.path.join(mipmap_path, "ic_launcher_foreground.png")
         foreground_resized.save(foreground_path, "PNG")
         print(f"✅ Created {foreground_path} ({size}x{size})")
+    
+    # Create color resource for adaptive icon background
+    values_path = os.path.join(app_path, "../values")
+    os.makedirs(values_path, exist_ok=True)
+    colors_xml = f'''<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ic_launcher_background">#{color[0]:02x}{color[1]:02x}{color[2]:02x}</color>
+</resources>'''
+    with open(os.path.join(values_path, "colors.xml"), "w") as f:
+        f.write(colors_xml)
+    print(f"✅ Created {values_path}/colors.xml")
 
 def main():
     developer_filter = sys.argv[1] if len(sys.argv) > 1 else "all"
