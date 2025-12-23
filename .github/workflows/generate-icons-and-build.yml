@@ -1,0 +1,142 @@
+name: Generate Icons and Build Apps
+
+on:
+  workflow_dispatch:
+    inputs:
+      developer:
+        description: 'Developer account (e.g., 01_giggle_game)'
+        required: false
+        type: choice
+        options:
+          - all
+          - 01_giggle_game
+          - 02_playpal_creations
+          - 03_olaf
+          - 04_good_kids
+          - 05_apocalypse_never
+          - 06_atomizer
+          - 07_okkyes
+          - 08_insightful_apps
+          - 09_build_deploy_labs
+          - 10_micho
+          - 11_playtime_programmers
+      build_type:
+        description: 'Build type'
+        required: false
+        type: choice
+        options:
+          - both
+          - aab
+          - apk
+        default: both
+
+jobs:
+  generate-icons:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        pip install Pillow
+    
+    - name: Generate app icons
+      run: |
+        python3 .github/scripts/generate_app_icons.py "${{ github.event.inputs.developer || 'all' }}"
+    
+    - name: Commit icons
+      run: |
+        git config user.name "GitHub Actions"
+        git config user.email "actions@github.com"
+        git add */android/app/src/main/res/mipmap-*/
+        git commit -m "Generate app icons" || exit 0
+        git push || exit 0
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-apps:
+    needs: generate-icons
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - developer: 01_giggle_game
+            apps: ["joke_generator", "meme_maker", "emoji_story", "laugh_tracker"]
+          - developer: 02_playpal_creations
+            apps: ["playpal_connect", "party_games", "duo_challenges", "word_games"]
+          - developer: 03_olaf
+            apps: ["brain_gym", "focus_timer", "meditation", "word_puzzles"]
+          - developer: 04_good_kids
+            apps: ["abc_learning", "numbers_counting", "kindness_quest", "chore_champion"]
+          - developer: 05_apocalypse_never
+            apps: ["eco_warrior", "survival_calc", "carbon_tracker", "resource_manager"]
+          - developer: 06_atomizer
+            apps: ["quick_notes", "speed_reader", "flash_math", "micro_habits"]
+          - developer: 07_okkyes
+            apps: ["affirmations", "mood_ok", "gratitude_journal", "goal_tracker"]
+          - developer: 08_insightful_apps
+            apps: ["insight_journal", "spending_insights", "habit_insights", "reading_tracker"]
+          - developer: 09_build_deploy_labs
+            apps: ["devlog_app", "json_formatter", "regex_playground", "git_cheatsheet"]
+          - developer: 10_micho
+            apps: ["startup_ideas", "pitch_deck", "founder_daily", "startup_glossary"]
+          - developer: 11_playtime_programmers
+            apps: ["code_hero", "bug_squash", "loop_master", "variable_valley"]
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.38.4'
+        channel: 'stable'
+        cache: true
+    
+    - name: Install dependencies
+      run: |
+        flutter doctor -v
+        cd ${{ matrix.developer }}/${{ matrix.apps[0] }}
+        flutter pub get
+    
+    - name: Build AAB
+      if: github.event.inputs.build_type == 'both' || github.event.inputs.build_type == 'aab'
+      run: |
+        cd ${{ matrix.developer }}/${{ matrix.apps[0] }}
+        flutter clean
+        flutter pub get
+        flutter build appbundle --release
+    
+    - name: Build APK
+      if: github.event.inputs.build_type == 'both' || github.event.inputs.build_type == 'apk'
+      run: |
+        cd ${{ matrix.developer }}/${{ matrix.apps[0] }}
+        flutter clean
+        flutter pub get
+        flutter build apk --release
+    
+    - name: Upload AAB artifacts
+      if: github.event.inputs.build_type == 'both' || github.event.inputs.build_type == 'aab'
+      uses: actions/upload-artifact@v4
+      with:
+        name: aab-${{ matrix.developer }}-${{ matrix.apps[0] }}
+        path: ${{ matrix.developer }}/${{ matrix.apps[0] }}/build/app/outputs/bundle/release/*.aab
+        retention-days: 30
+        if-no-files-found: ignore
+    
+    - name: Upload APK artifacts
+      if: github.event.inputs.build_type == 'both' || github.event.inputs.build_type == 'apk'
+      uses: actions/upload-artifact@v4
+      with:
+        name: apk-${{ matrix.developer }}-${{ matrix.apps[0] }}
+        path: ${{ matrix.developer }}/${{ matrix.apps[0] }}/build/app/outputs/flutter-apk/*.apk
+        retention-days: 30
+        if-no-files-found: ignore
+
